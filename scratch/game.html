@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Keyboard Bubble Pop</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --game-bg-color: #add8e6; /* Light Blue */
+            --bubble-text-color: #000000; /* Black */
+            --spike-color: #808080; /* Grey */
+            --score-color: #ff4500; /* OrangeRed */
+            --life-color: #1e90ff; /* DodgerBlue */
+            --flash-color: rgba(255, 0, 0, 0.3); /* Semi-transparent red */
+            --button-bg: #4CAF50; /* Green */
+            --button-hover-bg: #45a049;
+            --button-text: white;
+            --font-family: 'Press Start 2P', cursive;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f0f0f0;
+            margin: 0;
+            font-family: var(--font-family);
+            flex-direction: column; /* Stack controls above canvas */
+            overflow: hidden; /* Prevent scrollbars if canvas is large */
+        }
+
+        #game-container {
+            position: relative; /* Needed for absolute positioning of canvas and overlay */
+            border: 5px solid #333;
+            background-color: var(--game-bg-color);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+            margin-top: 20px; /* Space between controls and game */
+            width: 800px; /* Fixed width */
+            height: 600px; /* Fixed height */
+            max-width: 95vw; /* Responsive width */
+            max-height: 70vh; /* Responsive height */
+            aspect-ratio: 4 / 3; /* Maintain aspect ratio */
+        }
+
+        canvas {
+            display: block; /* Removes bottom space */
+            width: 100%;
+            height: 100%;
+        }
+
+        #controls, #stats {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 15px;
+            gap: 15px; /* Space between elements */
+            flex-wrap: wrap; /* Allow wrapping on smaller screens */
+            width: 100%;
+            max-width: 800px; /* Match game container width */
+            padding: 0 10px; /* Add some padding */
+            box-sizing: border-box;
+        }
+
+        #stats span {
+            font-size: 1.2em;
+            padding: 5px 10px;
+            background-color: rgba(255, 255, 255, 0.7);
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        #score {
+            color: var(--score-color);
+        }
+
+        #lives {
+            color: var(--life-color);
+        }
+
+        button {
+            font-family: var(--font-family);
+            padding: 10px 20px;
+            font-size: 1em;
+            cursor: pointer;
+            border: none;
+            border-radius: 8px;
+            background-color: var(--button-bg);
+            color: var(--button-text);
+            transition: background-color 0.3s ease, transform 0.1s ease;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            text-transform: uppercase;
+        }
+
+        button:hover {
+            background-color: var(--button-hover-bg);
+        }
+        button:active {
+            transform: scale(0.95);
+        }
+
+        button.active {
+            background-color: #ff8c00; /* Dark Orange for active difficulty */
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .red-flash {
+            animation: flash 0.3s ease-out;
+        }
+
+        @keyframes flash {
+            0%, 100% { background-color: var(--game-bg-color); }
+            50% { background-color: var(--flash-color); }
+        }
+
+        #game-over-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            display: none; /* Hidden by default */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            font-size: 2em;
+            z-index: 10; /* Ensure it's above the canvas */
+        }
+        #game-over-overlay h2 {
+            margin-bottom: 20px;
+        }
+        #game-over-overlay p {
+            font-size: 0.8em;
+            margin-bottom: 30px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="controls">
+        <button id="easy-btn">Easy</button>
+        <button id="medium-btn" class="active">Medium</button> <button id="hard-btn">Hard</button>
+        <button id="start-btn">Start Game</button>
+    </div>
+
+    <div id="stats">
+        <span id="score">Score: 0</span>
+        <span id="lives">Lives: ❤️❤️❤️❤️❤️</span>
+    </div>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div id="game-over-overlay">
+            <h2>Game Over!</h2>
+            <p id="final-score">Final Score: 0</p>
+            <button id="restart-btn">Play Again?</button>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gameContainer = document.getElementById('game-container');
+        const scoreDisplay = document.getElementById('score');
+        const livesDisplay = document.getElementById('lives');
+        const startBtn = document.getElementById('start-btn');
+        const easyBtn = document.getElementById('easy-btn');
+        const mediumBtn = document.getElementById('medium-btn');
+        const hardBtn = document.getElementById('hard-btn');
+        const difficultyButtons = [easyBtn, mediumBtn, hardBtn];
+        const gameOverOverlay = document.getElementById('game-over-overlay');
+        const finalScoreDisplay = document.getElementById('final-score');
+        const restartBtn = document.getElementById('restart-btn');
+
+        // --- Game Configuration ---
+        const SPIKE_HEIGHT = 30;
+        const BUBBLE_RADIUS = 25;
+        const MAX_BUBBLES = 5;
+        const INITIAL_LIVES = 5;
+        const LIFE_ICON = '❤️'; // Or '💧' or '🫧'
+        const MAX_SPAWN_ATTEMPTS = 20; // Max attempts to find a unique char
+
+        const CHAR_SETS = {
+            easy: 'abcdefghijklmnopqrstuvwxyz', // Case-insensitive handled in check
+            medium: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ',
+            hard: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789~!@#$%^&*()_+-={}[]|\\:;"\'<>,.?/'
+        };
+
+        // --- Game State ---
+        let score = 0;
+        let lives = INITIAL_LIVES;
+        let bubbles = [];
+        let gameActive = false;
+        let difficulty = 'medium'; // Default difficulty
+        let animationFrameId = null;
+        let availableChars = CHAR_SETS[difficulty];
+
+        // --- Utility Functions ---
+        function getRandomInt(min, max) {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        function getRandomFloat(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function getRandomColor() {
+            const letters = '89ABCDEF'; // Brighter colors
+            let color = '#';
+            for (let i = 0; i < 6; i++) {
+                color += letters[Math.floor(Math.random() * letters.length)];
+            }
+            return color;
+        }
+
+        // --- Bubble Class/Object ---
+        class Bubble {
+             // Modified constructor to accept a pre-determined character
+            constructor(character) {
+                this.radius = BUBBLE_RADIUS;
+                this.x = getRandomInt(this.radius, canvas.width - this.radius);
+                this.y = canvas.height + this.radius; // Start below the screen
+                this.speedY = getRandomFloat(1, 3); // Vertical speed
+                this.speedX = getRandomFloat(-1, 1); // Horizontal speed/direction
+                this.character = character; // Use the character passed in
+                this.color = getRandomColor();
+            }
+
+            update() {
+                this.y -= this.speedY;
+                this.x += this.speedX;
+
+                // Bounce off sides
+                if (this.x + this.radius > canvas.width || this.x - this.radius < 0) {
+                    this.speedX *= -1;
+                    // Prevent getting stuck in walls
+                    if (this.x + this.radius > canvas.width) this.x = canvas.width - this.radius;
+                    if (this.x - this.radius < 0) this.x = this.radius;
+                }
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.closePath();
+
+                // Draw character inside
+                ctx.fillStyle = 'black'; // Use fixed color for readability
+                // Use the game's font family from CSS
+                ctx.font = `bold ${this.radius * 0.8}px ${getComputedStyle(document.body).fontFamily}`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(this.character, this.x, this.y);
+            }
+        }
+
+        // --- Drawing Functions ---
+        function drawSpikes() {
+            // Use the CSS variable for spike color
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--spike-color').trim();
+            const spikeWidth = 20; // Width of the base of each spike
+            const numSpikes = Math.ceil(canvas.width / spikeWidth);
+
+            for (let i = 0; i < numSpikes; i++) {
+                ctx.beginPath();
+                ctx.moveTo(i * spikeWidth, 0); // Top-left corner of spike base
+                ctx.lineTo((i + 0.5) * spikeWidth, SPIKE_HEIGHT); // Point of the spike
+                ctx.lineTo((i + 1) * spikeWidth, 0); // Top-right corner of spike base
+                ctx.closePath();
+                ctx.fill();
+            }
+            // Draw a solid base for the spikes for a cleaner look
+            ctx.fillRect(0, 0, canvas.width, 5); // Small rectangle at the very top
+        }
+
+
+        function drawScore() {
+            scoreDisplay.textContent = `Score: ${score}`;
+        }
+
+        function drawLives() {
+            livesDisplay.textContent = `Lives: ${LIFE_ICON.repeat(lives)}`;
+        }
+
+        // --- Game Logic ---
+        // Modified spawnBubble to ensure unique characters
+        function spawnBubble() {
+            if (bubbles.length < MAX_BUBBLES && gameActive) {
+                // Add a small delay or probability to avoid constant spawning
+                if (Math.random() < 0.025) { // Slightly increased chance to compensate for uniqueness check failures
+                    let uniqueChar = null;
+                    let attempts = 0;
+
+                    // Get current characters on screen, considering difficulty for case sensitivity
+                    const currentChars = bubbles.map(b =>
+                        difficulty === 'easy' ? b.character.toLowerCase() : b.character
+                    );
+
+                    // Try to find a unique character
+                    while (attempts < MAX_SPAWN_ATTEMPTS) {
+                        const potentialChar = availableChars[getRandomInt(0, availableChars.length - 1)];
+                        const checkChar = difficulty === 'easy' ? potentialChar.toLowerCase() : potentialChar;
+
+                        if (!currentChars.includes(checkChar)) {
+                            uniqueChar = potentialChar;
+                            break; // Found a unique character
+                        }
+                        attempts++;
+                    }
+
+                    // If a unique character was found, create the bubble
+                    if (uniqueChar !== null) {
+                        bubbles.push(new Bubble(uniqueChar));
+                    } else {
+                         // Optional: Log if unable to find a unique char after max attempts
+                         // console.warn("Could not find a unique character to spawn after", MAX_SPAWN_ATTEMPTS, "attempts.");
+                    }
+                }
+            }
+        }
+
+
+        function updateGame() {
+            // Update bubbles
+            for (let i = bubbles.length - 1; i >= 0; i--) {
+                const bubble = bubbles[i];
+                bubble.update();
+
+                // Check collision with spikes
+                if (bubble.y - bubble.radius < SPIKE_HEIGHT) {
+                    bubbles.splice(i, 1); // Remove bubble
+                    loseLife();
+                }
+            }
+
+            // Spawn new bubbles (respecting uniqueness)
+            spawnBubble();
+        }
+
+        function drawGame() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw elements
+            drawSpikes();
+            bubbles.forEach(bubble => bubble.draw());
+            // Score and lives are updated via DOM elements, no need to redraw on canvas
+        }
+
+        function gameLoop() {
+            if (!gameActive) return;
+
+            updateGame();
+            drawGame(); // Redraw canvas contents
+
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        function startGame() {
+            if (gameActive) return; // Prevent starting multiple times
+
+            console.log("Starting game with difficulty:", difficulty);
+            gameActive = true;
+            score = 0;
+            lives = INITIAL_LIVES;
+            bubbles = []; // Clear existing bubbles
+            availableChars = CHAR_SETS[difficulty]; // Set chars for current difficulty
+            gameOverOverlay.style.display = 'none';
+            gameContainer.classList.remove('red-flash'); // Ensure flash is off
+
+            // Disable difficulty buttons during game
+            difficultyButtons.forEach(btn => btn.disabled = true);
+            startBtn.disabled = true;
+
+            // Initial draw
+            resizeCanvas(); // Ensure canvas size is correct before starting
+            drawScore(); // Update score display
+            drawLives(); // Update lives display
+
+            // Start the loop
+            cancelAnimationFrame(animationFrameId); // Clear any previous loop
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        function stopGame() {
+            gameActive = false;
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+             // Re-enable buttons
+            difficultyButtons.forEach(btn => btn.disabled = false);
+            startBtn.disabled = false;
+        }
+
+        function gameOver() {
+            stopGame();
+            finalScoreDisplay.textContent = `Final Score: ${score}`;
+            gameOverOverlay.style.display = 'flex';
+            console.log("Game Over!");
+        }
+
+        function loseLife() {
+            lives--;
+            drawLives(); // Update display immediately
+            if (lives <= 0) {
+                gameOver();
+            }
+            // Optional: Add a brief visual/audio cue for losing a life
+        }
+
+        function handleKeyPress(event) {
+            if (!gameActive) return;
+
+            const typedChar = event.key;
+            // Ignore non-single character keys like Shift, Control, etc. early
+            if (typedChar.length !== 1) return;
+
+            let matchFound = false;
+            let targetBubbleIndex = -1;
+
+            // Iterate to find a matching bubble
+            for (let i = 0; i < bubbles.length; i++) {
+                const bubble = bubbles[i];
+                let bubbleChar = bubble.character;
+                let comparisonChar = typedChar;
+
+                // Difficulty check for comparison
+                if (difficulty === 'easy') {
+                    // Case-insensitive comparison needed
+                    bubbleChar = bubbleChar.toLowerCase();
+                    comparisonChar = typedChar.toLowerCase();
+                    // Ensure the typed key is actually in the easy character set
+                    if (!CHAR_SETS.easy.includes(comparisonChar)) {
+                        continue; // Ignore keys not part of easy mode set
+                    }
+                } else {
+                     // For medium/hard, check if typed char is in the available set
+                     if (!availableChars.includes(typedChar)) {
+                         continue; // Ignore keys not part of the current difficulty set
+                     }
+                }
+
+                if (bubbleChar === comparisonChar) {
+                    matchFound = true;
+                    targetBubbleIndex = i;
+                    break; // Stop after finding the first match
+                }
+            }
+
+            if (matchFound) {
+                bubbles.splice(targetBubbleIndex, 1); // Pop the matched bubble
+                score++;
+                drawScore(); // Update score display
+                // Optional: Add popping sound/animation here
+            } else {
+                 // Only flash if a valid game character for the current difficulty was typed but didn't match
+                 const checkTypedChar = difficulty === 'easy' ? typedChar.toLowerCase() : typedChar;
+                 if (availableChars.includes(checkTypedChar)) {
+                    flashScreen();
+                 }
+            }
+        }
+
+
+        function flashScreen() {
+            // Prevent stacking flashes if already flashing
+            if (!gameContainer.classList.contains('red-flash')) {
+                gameContainer.classList.add('red-flash');
+                // Remove the class after the animation finishes
+                setTimeout(() => {
+                    gameContainer.classList.remove('red-flash');
+                }, 300); // Match animation duration
+            }
+        }
+
+        function setDifficulty(newDifficulty) {
+            if (gameActive) return; // Don't change difficulty mid-game
+
+            difficulty = newDifficulty;
+            availableChars = CHAR_SETS[difficulty]; // Update available characters
+            console.log("Difficulty set to:", difficulty);
+
+            // Update active button style
+            difficultyButtons.forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.id.startsWith(difficulty)) {
+                    btn.classList.add('active');
+                }
+            });
+        }
+
+         // --- Canvas Resizing ---
+         function resizeCanvas() {
+            // Get the actual computed size of the container
+            const containerStyle = window.getComputedStyle(gameContainer);
+            const containerWidth = parseFloat(containerStyle.width);
+            const containerHeight = parseFloat(containerStyle.height);
+
+            // Set canvas drawing buffer size
+            canvas.width = containerWidth;
+            canvas.height = containerHeight;
+
+            // Redraw static elements if the game is not active
+            // If the game *is* active, the game loop will handle redraws
+            if (!gameActive) {
+                 ctx.clearRect(0, 0, canvas.width, canvas.height);
+                 drawSpikes();
+                 // Score and lives are in HTML, no need to redraw here
+            }
+            console.log(`Canvas resized to: ${canvas.width}x${canvas.height}`);
+        }
+
+        // --- Event Listeners ---
+        startBtn.addEventListener('click', startGame);
+        restartBtn.addEventListener('click', () => {
+             gameOverOverlay.style.display = 'none'; // Hide overlay first
+             startGame(); // Start a new game
+        });
+
+        easyBtn.addEventListener('click', () => setDifficulty('easy'));
+        mediumBtn.addEventListener('click', () => setDifficulty('medium'));
+        hardBtn.addEventListener('click', () => setDifficulty('hard'));
+
+        window.addEventListener('keydown', handleKeyPress);
+        // Use ResizeObserver for more reliable container size changes
+        const resizeObserver = new ResizeObserver(entries => {
+            for (let entry of entries) {
+                if(entry.target === gameContainer) {
+                    resizeCanvas();
+                }
+            }
+        });
+        resizeObserver.observe(gameContainer);
+
+
+        // --- Initial Setup ---
+        window.onload = () => {
+            // resizeCanvas(); // resizeCanvas is now called by ResizeObserver initially
+            setDifficulty(difficulty); // Set initial button style
+             // Draw initial state before game starts
+            // resizeCanvas will handle the initial draw of spikes
+            drawScore();
+            drawLives();
+        };
+
+    </script>
+
+</body>
+</html>
